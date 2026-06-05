@@ -1,0 +1,6 @@
+{
+  "name": "КЛИМЛАБCAD",
+  "description": "Advanced HVAC engineering simulator, calculator, and knowledge base suite featuring real-time physics visualization.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
