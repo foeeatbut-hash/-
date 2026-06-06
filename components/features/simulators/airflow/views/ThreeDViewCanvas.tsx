@@ -1,6 +1,7 @@
 
 import React, { useRef, useEffect, useCallback, useState } from 'react';
-import { CONSTANTS, Particle3D, ThreeDViewCanvasProps, project, spawnParticle, updateParticlePhysics, buildFlowField, FlowField } from '../utils/airflow3DLogic';
+import { CONSTANTS, Particle3D, ThreeDViewCanvasProps, project, spawnParticle, updateParticlePhysics, buildRoomFieldParams } from '../utils/airflow3DLogic';
+import { RoomFieldParams } from '../utils/roomField';
 import { getDiffuserGeometry } from '../utils/diffuserJetProfile';
 import ViewCube from './ViewCube';
 
@@ -592,9 +593,9 @@ const ThreeDViewCanvas: React.FC<ThreeDViewCanvasProps> = (props) => {
         // Logic to determine spawn rate based on MAX velocity of all valid diffusers
         const renderableDiffusers = (state.placedDiffusers || []).filter(d => !d.performance?.error && !!d.performance?.spec?.A);
 
-        // Поле взаимодействия струй (перестраивается каждый кадр под текущую расстановку).
-        const flowField: FlowField | null = (isPowerOn && isPlaying && renderableDiffusers.length >= 2)
-            ? buildFlowField(state, 0.4)
+        // Поле воздухораспределения (теория струй) — частицы движутся по нему.
+        const fieldParams: RoomFieldParams | null = (isPowerOn && isPlaying && renderableDiffusers.length >= 1)
+            ? buildRoomFieldParams(state)
             : null;
 
         if (isPowerOn && isPlaying && renderableDiffusers.length > 0) {
@@ -620,7 +621,7 @@ const ThreeDViewCanvas: React.FC<ThreeDViewCanvasProps> = (props) => {
 
             if (isPowerOn && isPlaying) {
                 p.age += dt;
-                updateParticlePhysics(p, dt, state, PPM, flowField);
+                updateParticlePhysics(p, dt, state, PPM, fieldParams);
                 
                 if (p.age > p.life) {
                     p.active = false;

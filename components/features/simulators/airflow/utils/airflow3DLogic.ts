@@ -1,5 +1,6 @@
 import { getDiffuserFlowType, DIFFUSER_CATALOG } from '../../../../../constants';
 import { getDiffuserGeometry, getVerticalJetProfile } from './diffuserJetProfile';
+import { sampleRoomField, getJetCoefficients, RoomFieldParams, JetSource } from './roomField';
 import { PerformanceResult, PlacedDiffuser, Probe } from '../../../../../types';
 
 export const CONSTANTS = {
@@ -101,133 +102,58 @@ const getRenderableDiffusers = (state: ThreeDViewCanvasProps) =>
     (state.placedDiffusers || []).filter(d => !d.performance?.error && !!d.performance?.spec?.A);
 
 export const spawnParticle = (p: Particle3D, state: ThreeDViewCanvasProps, ppm: number) => {
-    let activeDiffuser: {
-        x: number, 
-        y: number,
-        performance: PerformanceResult,
-        modelId: string,
-        flowType?: string,
-        modeIdx?: number
-    };
-
+    // Спавним только из ПРИТОЧНЫХ воздухораспределителей; дальше движение задаёт поле.
     const renderableDiffusers = getRenderableDiffusers(state);
+    const supply = renderableDiffusers.filter(
+        (d) => getDiffuserFlowType(d.modelId, d.modeIdx, d.flowType) !== 'suction'
+    );
 
-    let ownerIdx = -1;
-    if (renderableDiffusers.length > 0) {
-        const idx = Math.floor(Math.random() * renderableDiffusers.length);
-        ownerIdx = idx; // индекс совпадает с порядком в field.sources (тот же getRenderableDiffusers)
-        const d = renderableDiffusers[idx];
-
-        activeDiffuser = {
-            x: (d.x - state.roomWidth / 2) * ppm,
-            y: (d.y - state.roomLength / 2) * ppm,
-            performance: d.performance,
-            modelId: d.modelId,
-            flowType: d.flowType,
-            modeIdx: d.modeIdx
-        };
-    } else {
-        activeDiffuser = {
-            x: 0,
-            y: 0,
-            performance: state.physics,
-            modelId: state.modelId,
-            flowType: state.flowType
-        };
+    let cx = 0, cz = 0, modelId = state.modelId, spec = state.physics.spec, v0 = state.physics.v0 || 1, supplyTemp = state.temp;
+    if (supply.length > 0) {
+        const d = supply[Math.floor(Math.random() * supply.length)];
+        cx = (d.x - state.roomWidth / 2) * ppm;
+        cz = (d.y - state.roomLength / 2) * ppm;
+        modelId = d.modelId;
+        spec = d.performance.spec;
+        v0 = d.performance.v0 || 1;
+        supplyTemp = d.temperature ?? state.temp;
+    } else if (state.physics.error) {
+        return;
     }
-
-    const { performance: physics, modelId, x: centerX, y: centerZ, flowType: explicitFlowType, modeIdx } = activeDiffuser;
-    const { temp, diffuserHeight, roomHeight } = state;
-    
-    if (physics.error) return;
-    const spec = physics.spec;
     if (!spec || !spec.A) return;
 
-    const flowType = explicitFlowType || state.flowType || 'vertical-conical';
-
-    const nozzleW = (spec.A / 1000) * ppm;
+    const mountedHeight = Math.max(0, Math.min(state.diffuserHeight, state.roomHeight));
     const geometry = getDiffuserGeometry(modelId, spec, ppm);
-
-    const mountedHeight = Math.max(0, Math.min(diffuserHeight, roomHeight));
     const startY = mountedHeight * ppm - geometry.outletOffset;
 
-    // ИСПРАВЛЕНИЕ 2: Увеличиваем стартовую скорость для более выраженного рисунка
-    const pxSpeed = (physics.v0 || 0) * ppm * 0.8;
+    // Рождаемся в пределах выходного отверстия; начальная скорость — вниз,
+    // далее частицу подхватывает поле (sampleRoomField).
+    const nozzleR = (spec.A / 2000) * ppm;
+    const a = Math.random() * Math.PI * 2;
+    const rr = Math.sqrt(Math.random()) * nozzleR;
 
-    let pX = centerX;
-    let pY = startY;
-    let pZ = centerZ;
-
-    let vx = 0, vy = 0, vz = 0;
-    let drag = 0.96;
-    let waveAmp = 5;
-    let waveFreq = 4 + Math.random() * 4;
-    let isHorizontal = false;
-    let isSuction = false;
-
-    const physicsAr = physics.Ar || 0; 
-    const visualGain = 50.0; 
-    const buoyancy = physicsAr * (physics.v0 * physics.v0) * ppm * visualGain;
-
-    if (flowType === 'suction') {
-        isSuction = true;
-        drag = 1.0; waveAmp = 0;
-        p.life = 3.0; 
-        p.color = '150, 150, 150';
-    } else {
-        const verticalProfile = getVerticalJetProfile(modelId, flowType);
-
-        if (verticalProfile) {
-            const emitterRadius = nozzleW * (verticalProfile.radiusFactor + Math.random() * verticalProfile.radiusJitter);
-            const emitter = verticalProfile.emitter === 'ring'
-                ? sampleRingEmitter(emitterRadius)
-                : sampleDiskEmitter(emitterRadius);
-            const coneAngle = (verticalProfile.coneMinDeg + Math.random() * verticalProfile.coneJitterDeg) * (Math.PI / 180);
-            
-            // ИСПРАВЛЕНИЕ 3: Умножаем разлет конуса и вихрей в 2.5 раза
-            const horizontalSpeed = Math.sin(coneAngle) * pxSpeed * verticalProfile.horizontalFactor;
-            const radialDirection = 1 - 2 * verticalProfile.inwardFactor;
-            const tangentialSpeed = pxSpeed * verticalProfile.tangentialFactor;
-
-            pX += emitter.x;
-            pZ += emitter.z;
-            vx = Math.cos(emitter.angle) * horizontalSpeed * radialDirection - Math.sin(emitter.angle) * tangentialSpeed;
-            vz = Math.sin(emitter.angle) * horizontalSpeed * radialDirection + Math.cos(emitter.angle) * tangentialSpeed;
-            vy = -Math.cos(coneAngle) * pxSpeed * verticalProfile.speedFactor;
-            waveAmp = verticalProfile.waveAmp;
-            waveFreq = verticalProfile.waveFreq;
-            drag = verticalProfile.drag;
-        } else {
-            const emitter = sampleDiskEmitter(nozzleW * 0.25);
-            pX += emitter.x;
-            pZ += emitter.z;
-            const coneAngle = (15 + Math.random() * 15) * (Math.PI / 180);
-            const horizontalSpeed = Math.sin(coneAngle) * pxSpeed * 0.6;
-            vx = Math.cos(emitter.angle) * horizontalSpeed;
-            vz = Math.sin(emitter.angle) * horizontalSpeed;
-            vy = -Math.cos(coneAngle) * pxSpeed;
-            waveAmp = 4; drag = 0.98;
-        }
-
-        p.life = 6.0 + Math.random() * 4.0;
-        p.color = getGlowColor(temp);
-    }
-
-    p.x = pX; p.y = pY; p.z = pZ;
-    p.vx = vx; p.vy = vy; p.vz = vz;
-    p.buoyancy = buoyancy; 
-    
-    // ИСПРАВЛЕНИЕ 4: Смягчаем сопротивление воздуха, чтобы конус не сжимался
-    p.drag = drag; 
-    
-    p.age = 0; 
-    p.waveFreq = waveFreq; p.wavePhase = Math.random() * Math.PI * 2; p.waveAmp = waveAmp; p.waveAngle = Math.random() * Math.PI * 2;
-    p.isHorizontal = isHorizontal; p.isSuction = isSuction;
-    p.ownerIdx = ownerIdx;
+    p.x = cx + Math.cos(a) * rr;
+    p.z = cz + Math.sin(a) * rr;
+    p.y = startY;
+    p.vx = 0;
+    p.vz = 0;
+    p.vy = -v0 * ppm * 0.35; // лёгкий стартовый импульс вниз
+    p.buoyancy = 0;
+    p.drag = 1.0;
+    p.age = 0;
+    p.life = 6.0 + Math.random() * 4.0;
+    p.color = getGlowColor(supplyTemp);
+    p.waveFreq = 3 + Math.random() * 3;
+    p.wavePhase = Math.random() * Math.PI * 2;
+    p.waveAmp = 1.6;
+    p.waveAngle = Math.random() * Math.PI * 2;
+    p.isHorizontal = false;
+    p.isSuction = false;
+    p.ownerIdx = -1;
     p.active = true;
     p.lastHistoryTime = 0;
-    p.history.length = 0; 
-    p.history.push({ x: pX, y: pY, z: pZ, age: 0 });
+    p.history.length = 0;
+    p.history.push({ x: p.x, y: p.y, z: p.z, age: 0 });
 };
 
 // ==========================================
@@ -349,119 +275,75 @@ export const sampleFlowField = (f: FlowField, wx: number, wz: number) => {
     return { vx: vxs, vz: vzs, p: ps, gx: gpx, gz: gpz };
 };
 
-export const updateParticlePhysics = (p: Particle3D, dt: number, state: ThreeDViewCanvasProps, ppm: number, field?: FlowField | null) => {
-    const mountedHeight = Math.max(0, Math.min(state.diffuserHeight, state.roomHeight));
+// Построение параметров поля воздухораспределения из размещённых диффузоров.
+export const buildRoomFieldParams = (state: ThreeDViewCanvasProps): RoomFieldParams => {
+    const mountHeight = Math.max(0, Math.min(state.diffuserHeight, state.roomHeight));
+    const sources: JetSource[] = getRenderableDiffusers(state).map((d) => {
+        const flowType = getDiffuserFlowType(d.modelId, d.modeIdx, d.flowType);
+        const c = getJetCoefficients(d.modelId);
+        return {
+            x: d.x,
+            z: d.y,
+            mountHeight,
+            v0: d.performance.v0 || 0,
+            F0: d.performance.spec?.f0 || 0.01,
+            m: c.m, n: c.n, spreadTan: c.spreadTan,
+            supplyTemp: d.temperature ?? state.temp,
+            isSuction: flowType === 'suction',
+        };
+    });
+    return {
+        roomW: state.roomWidth,
+        roomL: state.roomLength,
+        roomH: state.roomHeight,
+        roomTemp: state.roomTemp,
+        sources,
+    };
+};
 
-    p.age += dt;
-
-    if (p.isSuction) {
-        p.x += p.vx * dt; 
-        p.y += p.vy * dt;
-        p.z += p.vz * dt;
-        const diffY = mountedHeight * ppm;
-        if (p.y > diffY - 10) p.active = false; 
-    } else {
-        p.vy += p.buoyancy * dt;
-        
-        if (!p.isHorizontal) {
-            const turb = 2.0 * ppm * dt;
-            p.vx += (Math.random() - 0.5) * turb;
-            p.vz += (Math.random() - 0.5) * turb;
-        }
-
-        // --- ВЗАИМОДЕЙСТВИЕ СО ВСТРЕЧНЫМИ СТРУЯМИ ---
-        // Зона встречи струй ведёт себя как плоскость растекания (stagnation plane):
-        // лобовую (нормальную к плоскости) компоненту скорости НЕ отражаем назад
-        // — отражение и давало эффект «невидимой стены», — а гасим и переводим
-        // вбок (растекание вдоль плоскости) и вверх («фонтан»), как реальные
-        // сталкивающиеся струи.
-        if (field) {
-            const wx = p.x / ppm + state.roomWidth / 2;
-            const wz = p.z / ppm + state.roomLength / 2;
-            const s = sampleFlowField(field, wx, wz);
-            const gmag = Math.sqrt(s.gx * s.gx + s.gz * s.gz);
-
-            // Взаимодействие струй — ТОЛЬКО у пола (нижние ~35% высоты), где
-            // настилающиеся струи реально встречаются. В воздухе конусы независимы
-            // (любые эвристики в воздухе давали артефакты: пересечение/стенку/луч).
-            if (s.p > 0.02 && gmag > 1e-4) {
-                const ceilingY = (state.roomHeight || 3) * ppm;
-                const hFactor = Math.max(0, 1 - p.y / ceilingY); // 1 у пола → 0 у потолка
-                const floorGate = Math.max(0, (hFactor - 0.65) / 0.35); // только нижние ~35%
-
-                if (floorGate > 0) {
-                    const nx = s.gx / gmag;
-                    const nz = s.gz / gmag;
-                    const vn = p.vx * nx + p.vz * nz; // встречная горизонтальная компонента
-                    if (vn > 0) {
-                        const redirect = vn * Math.min(1, s.p * 2.5) * floorGate;
-                        // Настилающиеся струи встречаются: гасим лобовую (не пересекаются),
-                        // растекаются вбок и поднимаются «фонтаном».
-                        p.vx -= redirect * nx;
-                        p.vz -= redirect * nz;
-                        const tx = -nz, tz = nx;
-                        const tDot = p.vx * tx + p.vz * tz;
-                        const tSign = Math.abs(tDot) > 1e-3 ? Math.sign(tDot) : (Math.random() < 0.5 ? -1 : 1);
-                        p.vx += redirect * 0.5 * tSign * tx;
-                        p.vz += redirect * 0.5 * tSign * tz;
-                        p.vy += redirect * 1.1;
-                    }
-                }
-            }
-        }
-
-        p.vx *= p.drag;
-        p.vy *= p.drag;
-        p.vz *= p.drag;
-        
-        p.x += p.vx * dt; 
-        p.y += p.vy * dt; 
-        p.z += p.vz * dt;
-    }
-
+// Адвекция частицы по полю воздухораспределения: частица движется по
+// результирующему полю скоростей (слияние/растекание/фонтан — из суперпозиции).
+export const updateParticlePhysics = (p: Particle3D, dt: number, state: ThreeDViewCanvasProps, ppm: number, fieldParams?: RoomFieldParams | null) => {
     const ceilingY = state.roomHeight * ppm;
-    if (p.y > ceilingY) {
-        p.y = ceilingY;
-        p.vy = Math.min(0, p.vy * -0.05);
-    }
-    if (p.y <= 0) {
-        p.y = 0;
-        if (!p.isHorizontal) {
-            p.isHorizontal = true;
-            const energyLoss = 0.6;
-            const impactSpeed = Math.abs(p.vy) * energyLoss;
-            p.vy = 0;
-            
-            const currentSpeed = Math.sqrt(p.vx * p.vx + p.vz * p.vz);
-            if (currentSpeed > 0.1) {
-                const angle = Math.atan2(p.vz, p.vx) + (Math.random() - 0.5) * 1.5;
-                p.vx += Math.cos(angle) * impactSpeed;
-                p.vz += Math.sin(angle) * impactSpeed;
-            } else {
-                const angle = Math.random() * Math.PI * 2;
-                p.vx += Math.cos(angle) * impactSpeed;
-                p.vz += Math.sin(angle) * impactSpeed;
-            }
-            p.drag = 0.95;
-        }
-    }
-    
     const halfW = (state.roomWidth * ppm) / 2;
     const halfL = (state.roomLength * ppm) / 2;
-    
-    if (p.x < -halfW) {
-        p.x = -halfW;
-        p.active = false;
-    } else if (p.x > halfW) {
-        p.x = halfW;
-        p.active = false;
+
+    if (fieldParams && fieldParams.sources.length > 0) {
+        // Мировые координаты частицы (м): x:0..W, y:0..H (вверх +), z:0..L.
+        const wx = p.x / ppm + state.roomWidth / 2;
+        const wy = p.y / ppm;
+        const wz = p.z / ppm + state.roomLength / 2;
+        const f = sampleRoomField(wx, wy, wz, fieldParams);
+
+        // Частица подстраивается под локальную скорость поля (в пикселях/с).
+        const k = Math.min(1, 9 * dt);
+        p.vx += (f.vx * ppm - p.vx) * k;
+        p.vy += (f.vy * ppm - p.vy) * k;
+        p.vz += (f.vz * ppm - p.vz) * k;
+
+        // Лёгкая турбулентность для живости картинки.
+        const turb = 0.3 * ppm * dt;
+        p.vx += (Math.random() - 0.5) * turb;
+        p.vy += (Math.random() - 0.5) * turb * 0.4;
+        p.vz += (Math.random() - 0.5) * turb;
+
+        // Цвет — по локальной температуре поля.
+        p.color = getGlowColor(f.t);
+
+        // В почти стоячем воздухе укорачиваем жизнь (чтобы частицы не зависали).
+        if (f.speed < 0.04) p.life = Math.min(p.life, p.age + 0.6);
+    } else {
+        p.vy -= 0.5 * ppm * dt; // нет поля (превью одного ВР): простое падение
     }
 
-    if (p.z < -halfL) {
-        p.z = -halfL;
-        p.active = false;
-    } else if (p.z > halfL) {
-        p.z = halfL;
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.z += p.vz * dt;
+
+    if (p.y > ceilingY) { p.y = ceilingY; p.vy = Math.min(0, p.vy); }
+    if (p.y < 0) { p.y = 0; p.vy = Math.max(0, p.vy); p.isHorizontal = true; }
+
+    if (p.x < -halfW || p.x > halfW || p.z < -halfL || p.z > halfL) {
         p.active = false;
     }
 };
