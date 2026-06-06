@@ -260,7 +260,8 @@ const ThreeDViewCanvas: React.FC<ThreeDViewCanvasProps> = (props) => {
                     history: [], 
                     color: '255,255,255',
                     waveFreq: 0, wavePhase: 0, waveAmp: 0, waveAngle: 0,
-                    isHorizontal: false, isSuction: false
+                    isHorizontal: false, isSuction: false,
+                    ownerIdx: -1
                 });
             }
         }

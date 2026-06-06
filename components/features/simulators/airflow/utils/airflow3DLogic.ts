@@ -20,6 +20,7 @@ export interface Particle3D {
     color: string; 
     waveFreq: number; wavePhase: number; waveAmp: number; waveAngle: number;
     isHorizontal: boolean; isSuction: boolean;
+    ownerIdx: number; // индекс диффузора-источника (для эжекции к соседним струям)
 }
 
 export interface ThreeDViewCanvasProps {
@@ -111,10 +112,12 @@ export const spawnParticle = (p: Particle3D, state: ThreeDViewCanvasProps, ppm: 
 
     const renderableDiffusers = getRenderableDiffusers(state);
 
+    let ownerIdx = -1;
     if (renderableDiffusers.length > 0) {
         const idx = Math.floor(Math.random() * renderableDiffusers.length);
+        ownerIdx = idx; // индекс совпадает с порядком в field.sources (тот же getRenderableDiffusers)
         const d = renderableDiffusers[idx];
-        
+
         activeDiffuser = {
             x: (d.x - state.roomWidth / 2) * ppm,
             y: (d.y - state.roomLength / 2) * ppm,
@@ -220,6 +223,7 @@ export const spawnParticle = (p: Particle3D, state: ThreeDViewCanvasProps, ppm: 
     p.age = 0; 
     p.waveFreq = waveFreq; p.wavePhase = Math.random() * Math.PI * 2; p.waveAmp = waveAmp; p.waveAngle = Math.random() * Math.PI * 2;
     p.isHorizontal = isHorizontal; p.isSuction = isSuction;
+    p.ownerIdx = ownerIdx;
     p.active = true;
     p.lastHistoryTime = 0;
     p.history.length = 0; 
@@ -246,6 +250,8 @@ export interface FlowField {
     vx: Float32Array;      // результирующая гориз. скорость по X, м/с
     vz: Float32Array;      // результирующая гориз. скорость по Z, м/с
     p: Float32Array;       // застойное давление (мера столкновения), м/с
+    // Источники-струи (для эжекции/слияния), индекс совпадает с ownerIdx частицы.
+    sources: { cx: number; cz: number; strength: number; reach: number }[];
 }
 
 export const buildFlowField = (state: ThreeDViewCanvasProps, cell = 0.4): FlowField | null => {
@@ -260,7 +266,7 @@ export const buildFlowField = (state: ThreeDViewCanvasProps, cell = 0.4): FlowFi
     const pp = new Float32Array(cols * rows);
 
     const renderable = getRenderableDiffusers(state);
-    const field: FlowField = { cols, rows, cell, roomWidth, roomLength, vx, vz, p: pp };
+    const field: FlowField = { cols, rows, cell, roomWidth, roomLength, vx, vz, p: pp, sources: [] };
     if (renderable.length < 2) return field; // взаимодействие имеет смысл от двух струй
 
     // Предрасчёт характеристик каждой настилающейся струи на уровне пола/рабочей зоны.
@@ -273,6 +279,7 @@ export const buildFlowField = (state: ThreeDViewCanvasProps, cell = 0.4): FlowFi
         const vCore = Math.max(0, (d.performance.workzoneVelocity || 0) * speedFactor);
         return { cx: d.x, cz: d.y, R, vCore, sign: flowType === 'suction' ? -1 : 1 };
     });
+    field.sources = sources.map((s) => ({ cx: s.cx, cz: s.cz, strength: s.vCore, reach: s.R }));
 
     for (let r = 0; r < rows; r++) {
         const wz = (r + 0.5) * cell;
@@ -373,6 +380,29 @@ export const updateParticlePhysics = (p: Particle3D, dt: number, state: ThreeDVi
             const wz = p.z / ppm + state.roomLength / 2;
             const s = sampleFlowField(field, wx, wz);
             const gmag = Math.sqrt(s.gx * s.gx + s.gz * s.gz);
+
+            // ЭЖЕКЦИЯ / СЛИЯНИЕ: пока струя опускается, её подтягивает к соседним
+            // струям (подсос воздуха между ними). Сила — по импульсу соседа
+            // (∝ расход·скорость) и близости. Так близкие струи сходятся в общий
+            // поток вниз, заполняя центр, а не оставляют пустой зазор.
+            if (!p.isHorizontal && p.ownerIdx >= 0 && field.sources.length >= 2) {
+                let fx = 0, fz = 0;
+                for (let i = 0; i < field.sources.length; i++) {
+                    if (i === p.ownerIdx) continue;
+                    const src = field.sources[i];
+                    const dx = src.cx - wx;
+                    const dz = src.cz - wz;
+                    const hd = Math.sqrt(dx * dx + dz * dz);
+                    if (hd > 0.15 && hd < src.reach) {
+                        const w = src.strength * (1 - hd / src.reach);
+                        fx += (dx / hd) * w;
+                        fz += (dz / hd) * w;
+                    }
+                }
+                const k = 3.0 * ppm * dt;
+                p.vx += fx * k;
+                p.vz += fz * k;
+            }
 
             if (s.p > 0.015 && gmag > 1e-4) {
                 const ceilingY = (state.roomHeight || 3) * ppm;
