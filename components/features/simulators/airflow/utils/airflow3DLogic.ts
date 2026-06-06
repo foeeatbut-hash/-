@@ -396,7 +396,7 @@ export const updateParticlePhysics = (p: Particle3D, dt: number, state: ThreeDVi
 
                 // 3. "Фонтан": в зоне столкновения горизонтальный импульс переходит
                 //    в восходящий — сталкивающиеся wall-jet поднимаются вверх.
-                p.vy += s.p * ppm * 5.0 * hFactor * hFactor * dt;
+                p.vy += s.p * ppm * 8.0 * hFactor * hFactor * dt;
             }
         }
 

@@ -159,6 +159,77 @@ const buildSideFlowResetKey = (state: SideViewCanvasProps) => JSON.stringify({
     slice: state.slice
 });
 
+// --- ВЗАИМОДЕЙСТВИЕ ВСТРЕЧНЫХ СТРУЙ (1D-поле вдоль оси сечения) ---
+// В виде сбоку струи сходятся вдоль одной оси, поэтому поле одномерное:
+// для каждой проекции диффузора — настилающаяся скорость наружу и мера
+// встречного гашения p = Σ|v| − |Σv|. Высокое p = зона столкновения.
+interface SideField {
+    cell: number;
+    n: number;
+    vx: Float32Array;   // результирующая горизонтальная скорость, м/с
+    p: Float32Array;    // застойное давление (мера столкновения), м/с
+}
+
+const buildSideField = (state: SideViewCanvasProps, cell = 0.3): SideField | null => {
+    const viewType = getEffectiveViewType(state);
+    const roomDim = viewType === 'front' ? state.roomWidth : state.roomLength;
+    if (!roomDim) return null;
+
+    const n = Math.max(1, Math.ceil(roomDim / cell));
+    const vx = new Float32Array(n);
+    const pp = new Float32Array(n);
+
+    const diffs = getSliceDiffusers(state);
+    const field: SideField = { cell, n, vx, p: pp };
+    if (diffs.length < 2) return field;
+
+    const sources = diffs.map((d) => {
+        const flowType = getDiffuserFlowType(d.modelId, d.modeIdx, d.flowType);
+        const vProf = getVerticalJetProfile(d.modelId, flowType);
+        const speedFactor = vProf ? vProf.speedFactor : 1.0;
+        const horizontalFactor = vProf ? vProf.horizontalFactor : 0.5;
+        const R = Math.max(0.35, (d.performance.coverageRadius || 0.5) * (0.5 + horizontalFactor));
+        const vCore = Math.max(0, (d.performance.workzoneVelocity || 0) * speedFactor);
+        return { pos: getProjectedPos(viewType, d), R, vCore, sign: flowType === 'suction' ? -1 : 1 };
+    });
+
+    for (let i = 0; i < n; i++) {
+        const wx = (i + 0.5) * cell;
+        let s = 0, scalar = 0;
+        for (let k = 0; k < sources.length; k++) {
+            const src = sources[k];
+            const dx = wx - src.pos;
+            const dist = Math.abs(dx);
+            if (dist >= src.R) continue;
+            const fall = 1 - Math.pow(dist / src.R, 1.3);
+            if (fall <= 0) continue;
+            const v = src.vCore * fall;
+            if (v < 0.001) continue;
+            const u = dist > 1e-4 ? dx / dist : 0;
+            s += u * v * src.sign;
+            scalar += v;
+        }
+        vx[i] = s;
+        pp[i] = Math.max(0, scalar - Math.abs(s));
+    }
+    return field;
+};
+
+const sampleSideField = (f: SideField, wx: number) => {
+    const clamp = (i: number) => (i < 0 ? 0 : i > f.n - 1 ? f.n - 1 : i);
+    const gi = wx / f.cell - 0.5;
+    let i0 = Math.floor(gi);
+    const fr = gi - i0;
+    const i1 = clamp(i0 + 1);
+    i0 = clamp(i0);
+    const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+    const vxs = lerp(f.vx[i0], f.vx[i1], fr);
+    const ps = lerp(f.p[i0], f.p[i1], fr);
+    const iL = clamp(i0 - 1), iR = clamp(i0 + 1);
+    const gpx = (f.p[iR] - f.p[iL]) / (2 * f.cell);
+    return { vx: vxs, p: ps, gx: gpx };
+};
+
 const SideViewCanvas: React.FC<SideViewCanvasProps> = (props) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const requestRef = useRef<number>(0);
@@ -672,6 +743,10 @@ const SideViewCanvas: React.FC<SideViewCanvasProps> = (props) => {
 
         // 2. PHYSICS
         const maxH = height;
+        // Поле взаимодействия встречных струй (перестраивается каждый кадр).
+        const sideField = (isPowerOn && isPlaying && sliceDiffusers.length >= 2)
+            ? buildSideField(state, 0.3)
+            : null;
         const batches: Record<string, Particle[]> = {};
         const QUANTIZE = 20;
 
@@ -693,12 +768,36 @@ const SideViewCanvas: React.FC<SideViewCanvasProps> = (props) => {
                     if (p.y > diffY - 10) p.active = false; 
                 } else {
                     p.vy += p.buoyancy * dt;
-                    
+
                     if (!p.isHorizontal) {
                         const turb = 2.0 * ppm * dt;
                         p.vx += (Math.random() - 0.5) * turb;
                     }
-                    
+
+                    // --- ВЗАИМОДЕЙСТВИЕ СО ВСТРЕЧНЫМИ СТРУЯМИ ---
+                    if (sideField) {
+                        const wx = (p.x - offsetX) / ppm;
+                        const roomPixH = roomHeight * ppm;
+                        const hFactor = Math.max(0, Math.min(1, (p.y - offsetY) / roomPixH)); // 0 у потолка → 1 у пола
+                        const s = sampleSideField(sideField, wx);
+
+                        if (s.p > 0.015 || s.vx !== 0) {
+                            const inf = 0.25 + 0.75 * hFactor;
+                            // 1. Эжекция к результирующему потоку (во встречной зоне ≈0 → торможение).
+                            const kAdv = Math.min(0.5, 1.4 * dt) * inf;
+                            p.vx += (s.vx * ppm - p.vx) * kAdv;
+                            // 2. Расталкивание прочь от линии столкновения (вниз по градиенту давления).
+                            let rg = -s.gx * ppm * dt * 9.0 * inf;
+                            const rMax = 6.0 * ppm * dt;
+                            if (rg > rMax) rg = rMax; else if (rg < -rMax) rg = -rMax;
+                            p.vx += rg;
+                            // 3. "Фонтан": встречные настилающиеся струи поднимаются (вверх = −vy).
+                            const up = s.p * ppm * 8.0 * hFactor * hFactor * dt;
+                            p.vy -= up;
+                            if (up > 0.6 && p.isHorizontal) p.isHorizontal = false; // отрыв от пола, рост вверх
+                        }
+                    }
+
                     p.vx *= p.drag;
                     p.vy *= p.drag;
                     p.x += p.vx * dt; p.y += p.vy * dt;
