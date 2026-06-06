@@ -208,6 +208,23 @@ export const SimulatorRightPanel = ({
 
             </SectionCard>
 
+            {hasDiffusers && (
+                <SectionCard title="Рабочая зона" subtitle="Реальная область пересечения потока (план)" icon={<ScanLine size={18} />}>
+                    <DetailRow
+                        label="Площадь покрытия"
+                        value={`${formatNumber(topViewStats?.workzoneArea || 0, 1)} м²`}
+                        hint={`${formatNumber(topViewStats?.workzoneCoveragePct || 0, 0)}% площади · граница 0.2 м/с`}
+                        tone="info"
+                    />
+                    <DetailRow
+                        label="Скорость в зоне"
+                        value={`${formatNumber(topViewStats?.workzoneVAvg || 0, 2)}–${formatNumber(topViewStats?.workzoneVMax || 0, 2)} м/с`}
+                        hint="средняя – макс по области"
+                        tone={getVelocityTone(topViewStats?.workzoneVMax || 0)}
+                    />
+                </SectionCard>
+            )}
+
             <SectionCard
                 title="Активный диффузор"
                 subtitle={currentModel ? `${currentModel.series} ${currentModel.name}` : 'Текущая конфигурация'}
