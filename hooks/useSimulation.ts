@@ -125,7 +125,7 @@ export const calculateWorkzoneVelocityAndCoverage = (
     vx = Math.max(0.05, vx); 
 
     const initialRadius = Math.sqrt(spec_A) / 2000.0; 
-    const coverageRadius = initialRadius + dist * 0.2; 
+    const coverageRadius = initialRadius + dist * 0.35; // сечение конуса струи на высоте среза
     
     return { workzoneVelocity: vx, coverageRadius };
 };
@@ -224,10 +224,10 @@ export const calculateScientificPerformanceResult = (
         kArchimedes
     );
 
-    // Радиус покрытия зависит от потока: растёт с дальнобойностью струи,
-    // а она — от расхода (throwDist) и температуры (kArchimedes). Поэтому
-    // область на плане увеличивается/уменьшается при регулировке потока.
-    const coverageRadius = Math.max(0.3, geomCoverage * 0.5 + finalThrow * 0.4);
+    // На плане показываем СЕЧЕНИЕ струи на высоте рабочей зоны (компактное),
+    // а не растекание по полу. Размер зависит от высоты среза (dist), а площадь
+    // внутри — от потока через маску скорости ≥ 0.2 м/с.
+    const coverageRadius = Math.max(0.25, geomCoverage);
 
     return {
         v0: Math.max(0, v0),

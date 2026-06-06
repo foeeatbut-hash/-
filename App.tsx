@@ -61,15 +61,16 @@ const AppContent = () => {
 
         // Хореография интро (≈3.6 с до интерактива):
         introTimers.current = [
-            // Фаза 1: лишние буквы «АТИЧЕСКАЯ»/«ОРАТОРИЯ» синхронно схлопываются, бэйдж стягивается к «КЛИМ».
-            window.setTimeout(() => setLogoStep(1), 1300),
-            // Фаза 2: бэйдж «ЛАБ» встаёт вплотную к «КЛИМ» → читается «КЛИМЛАБ».
-            window.setTimeout(() => setLogoStep(2), 2050),
+            // Фаза 0→1: полный текст «КЛИМАТИЧЕСКАЯ ЛАБОРАТОРИЯ» читается, затем лишние
+            // буквы «АТИЧЕСКАЯ»/«ОРАТОРИЯ» синхронно схлопываются.
+            window.setTimeout(() => setLogoStep(1), 1900),
+            // Фаза 2: «ЛАБ» превращается в фирменный бэйдж и встаёт вплотную к «КЛИМ» → «КЛИМЛАБ».
+            window.setTimeout(() => setLogoStep(2), 2700),
             // Фаза 3: интро плавно уезжает, проявляется рабочий хедер.
-            window.setTimeout(() => { setIntroPhase(1); setLogoStep(3); }, 2650),
+            window.setTimeout(() => { setIntroPhase(1); setLogoStep(3); }, 3300),
             // Фаза 4: проявляются карточки лаунчера; фиксируем показ за сессию.
-            window.setTimeout(() => { setIntroPhase(2); setLogoStep(4); }, 3550),
-            window.setTimeout(() => { try { sessionStorage.setItem('klimlab-intro-played', '1'); } catch (e) { /* недоступно */ } }, 3600),
+            window.setTimeout(() => { setIntroPhase(2); setLogoStep(4); }, 4200),
+            window.setTimeout(() => { try { sessionStorage.setItem('klimlab-intro-played', '1'); } catch (e) { /* недоступно */ } }, 4250),
         ];
 
         return clearIntroTimers;
@@ -404,8 +405,10 @@ const AppContent = () => {
                                         }`}>АТИЧЕСКАЯ</span>
                                     </span>
 
-                                    <span className={`inline-flex items-center transform-gpu transition-all duration-[850ms] ease-[cubic-bezier(0.22,1,0.36,1)] px-3 py-1.5 rounded-2xl bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-transparent bg-clip-text bg-gradient-to-r from-blue-500 via-blue-600 to-emerald-500 font-black shadow-sm ${
-                                        logoStep >= 2 ? 'ml-1' : 'ml-2 md:ml-3'
+                                    <span className={`inline-flex items-center transform-gpu transition-all duration-[850ms] ease-[cubic-bezier(0.22,1,0.36,1)] font-black ${
+                                        logoStep >= 2
+                                            ? 'ml-1 px-3 py-1.5 rounded-2xl bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-transparent bg-clip-text bg-gradient-to-r from-blue-500 via-blue-600 to-emerald-500 shadow-sm'
+                                            : 'ml-2 md:ml-3 text-slate-800 dark:text-white'
                                     }`}>
                                         <span>ЛАБ</span>
                                         <span className={`inline-block overflow-hidden whitespace-nowrap select-none transform-gpu transition-all duration-[850ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
