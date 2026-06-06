@@ -374,7 +374,7 @@ export const updateParticlePhysics = (p: Particle3D, dt: number, state: ThreeDVi
             const s = sampleFlowField(field, wx, wz);
             const gmag = Math.sqrt(s.gx * s.gx + s.gz * s.gz);
 
-            if (s.p > 0.02 && gmag > 1e-4) {
+            if (s.p > 0.015 && gmag > 1e-4) {
                 // Влияние сильнее у пола, где настилающиеся струи реально встречаются;
                 // вверху сохраняем целостность нисходящего ядра струи.
                 const ceilingY = (state.roomHeight || 3) * ppm;
@@ -387,7 +387,7 @@ export const updateParticlePhysics = (p: Particle3D, dt: number, state: ThreeDVi
                 // Скорость частицы «в лоб» навстречу другой струе.
                 const vn = p.vx * nx + p.vz * nz;
                 if (vn > 0) {
-                    const redirect = vn * Math.min(1, s.p * 2.5) * inf;
+                    const redirect = vn * Math.min(1, s.p * 3.5) * inf;
 
                     // 1. Гасим лобовую компоненту (поток не пересекает плоскость встречи,
                     //    но и не отскакивает назад).
@@ -398,11 +398,11 @@ export const updateParticlePhysics = (p: Particle3D, dt: number, state: ThreeDVi
                     const tx = -nz, tz = nx;
                     const tDot = p.vx * tx + p.vz * tz;
                     const tSign = Math.abs(tDot) > 1e-3 ? Math.sign(tDot) : (Math.random() < 0.5 ? -1 : 1);
-                    p.vx += redirect * 0.6 * tSign * tx;
-                    p.vz += redirect * 0.6 * tSign * tz;
+                    p.vx += redirect * 0.7 * tSign * tx;
+                    p.vz += redirect * 0.7 * tSign * tz;
 
                     // 3. Восходящий «фонтан» — сильнее у пола.
-                    p.vy += redirect * (0.5 + 0.9 * hFactor);
+                    p.vy += redirect * (0.7 + 1.3 * hFactor);
                 }
             }
         }

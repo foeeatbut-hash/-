@@ -398,23 +398,19 @@ const AppContent = () => {
                                 <h1 className="text-[24px] sm:text-[36px] md:text-[46px] lg:text-[54px] font-black tracking-tight uppercase flex flex-row items-center leading-none whitespace-nowrap w-max max-w-full">
                                     <span className="flex items-center text-slate-800 dark:text-white">
                                         <span>КЛИМ</span>
-                                        {/* Морфинг через grid-колонку (1fr→0fr): без reflow-рывков, плавно стягивает соседа */}
-                                        <span className={`inline-grid transform-gpu transition-[grid-template-columns,opacity,filter] duration-[850ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
-                                            logoStep >= 1 ? 'grid-cols-[0fr] opacity-0 blur-[2px]' : 'grid-cols-[1fr] opacity-100 blur-0'
-                                        }`}>
-                                            <span className="min-w-0 overflow-hidden whitespace-nowrap select-none">АТИЧЕСКАЯ</span>
-                                        </span>
+                                        {/* Лишние буквы: сначала видны полностью, затем схлопываются по ширине */}
+                                        <span className={`inline-block overflow-hidden whitespace-nowrap select-none transform-gpu transition-all duration-[850ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                                            logoStep >= 1 ? 'max-w-0 opacity-0 blur-[2px]' : 'max-w-[16ch] opacity-100 blur-0'
+                                        }`}>АТИЧЕСКАЯ</span>
                                     </span>
 
                                     <span className={`inline-flex items-center transform-gpu transition-all duration-[850ms] ease-[cubic-bezier(0.22,1,0.36,1)] px-3 py-1.5 rounded-2xl bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-transparent bg-clip-text bg-gradient-to-r from-blue-500 via-blue-600 to-emerald-500 font-black shadow-sm ${
                                         logoStep >= 2 ? 'ml-1' : 'ml-2 md:ml-3'
                                     }`}>
                                         <span>ЛАБ</span>
-                                        <span className={`inline-grid transform-gpu transition-[grid-template-columns,opacity,filter] duration-[850ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
-                                            logoStep >= 1 ? 'grid-cols-[0fr] opacity-0 blur-[2px]' : 'grid-cols-[1fr] opacity-100 blur-0'
-                                        }`}>
-                                            <span className="min-w-0 overflow-hidden whitespace-nowrap select-none">ОРАТОРИЯ</span>
-                                        </span>
+                                        <span className={`inline-block overflow-hidden whitespace-nowrap select-none transform-gpu transition-all duration-[850ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                                            logoStep >= 1 ? 'max-w-0 opacity-0 blur-[2px]' : 'max-w-[16ch] opacity-100 blur-0'
+                                        }`}>ОРАТОРИЯ</span>
                                     </span>
                                 </h1>
                                 <p className="intro-rise text-slate-400/80 dark:text-slate-500 text-[10px] sm:text-[11px] md:text-xs font-bold tracking-[0.4em] uppercase mt-3.5 select-none">

@@ -784,14 +784,14 @@ const SideViewCanvas: React.FC<SideViewCanvasProps> = (props) => {
                         const hFactor = Math.max(0, Math.min(1, (p.y - offsetY) / roomPixH)); // 0 потолок → 1 пол
                         const s = sampleSideField(sideField, wx);
 
-                        if (s.p > 0.02 && Math.abs(s.gx) > 1e-4) {
+                        if (s.p > 0.015 && Math.abs(s.gx) > 1e-4) {
                             const inf = 0.3 + 0.7 * hFactor;
                             const nx = s.gx > 0 ? 1 : -1;   // нормаль к плоскости встречи
                             const vn = p.vx * nx;           // лобовая компонента
                             if (vn > 0) {
-                                const redirect = vn * Math.min(1, s.p * 2.5) * inf;
+                                const redirect = vn * Math.min(1, s.p * 3.5) * inf;
                                 p.vx -= redirect * nx;                       // гасим лобовую (без отражения)
-                                p.vy -= redirect * (0.7 + 0.9 * hFactor);    // вверх = −vy («фонтан»)
+                                p.vy -= redirect * (0.9 + 1.4 * hFactor);    // вверх = −vy («фонтан»)
                                 if (redirect > 0.4 && p.isHorizontal) p.isHorizontal = false;
                             }
                         }

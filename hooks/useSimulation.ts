@@ -215,7 +215,7 @@ export const calculateScientificPerformanceResult = (
 
     const finalThrow = Math.max(0, throwDist * kArchimedes);
     const AkMm2 = spec.f0 * 1000000;
-    const { workzoneVelocity, coverageRadius } = calculateWorkzoneVelocityAndCoverage(
+    const { workzoneVelocity, coverageRadius: geomCoverage } = calculateWorkzoneVelocityAndCoverage(
         v0,
         AkMm2,
         diffuserHeight,
@@ -223,6 +223,11 @@ export const calculateScientificPerformanceResult = (
         2.0,
         kArchimedes
     );
+
+    // Радиус покрытия зависит от потока: растёт с дальнобойностью струи,
+    // а она — от расхода (throwDist) и температуры (kArchimedes). Поэтому
+    // область на плане увеличивается/уменьшается при регулировке потока.
+    const coverageRadius = Math.max(0.3, geomCoverage * 0.5 + finalThrow * 0.4);
 
     return {
         v0: Math.max(0, v0),
