@@ -363,40 +363,47 @@ export const updateParticlePhysics = (p: Particle3D, dt: number, state: ThreeDVi
         }
 
         // --- ВЗАИМОДЕЙСТВИЕ СО ВСТРЕЧНЫМИ СТРУЯМИ ---
+        // Зона встречи струй ведёт себя как плоскость растекания (stagnation plane):
+        // лобовую (нормальную к плоскости) компоненту скорости НЕ отражаем назад
+        // — отражение и давало эффект «невидимой стены», — а гасим и переводим
+        // вбок (растекание вдоль плоскости) и вверх («фонтан»), как реальные
+        // сталкивающиеся струи.
         if (field) {
             const wx = p.x / ppm + state.roomWidth / 2;
             const wz = p.z / ppm + state.roomLength / 2;
             const s = sampleFlowField(field, wx, wz);
+            const gmag = Math.sqrt(s.gx * s.gx + s.gz * s.gz);
 
-            if (s.p > 0.015 || s.vx !== 0 || s.vz !== 0) {
-                // Влияние нарастает к полу/рабочей зоне, где настилающиеся струи встречаются;
+            if (s.p > 0.02 && gmag > 1e-4) {
+                // Влияние сильнее у пола, где настилающиеся струи реально встречаются;
                 // вверху сохраняем целостность нисходящего ядра струи.
                 const ceilingY = (state.roomHeight || 3) * ppm;
-                const hFactor = Math.max(0, 1 - p.y / ceilingY);   // 1 у пола → 0 у потолка
-                const inf = 0.25 + 0.75 * hFactor;
+                const hFactor = Math.max(0, 1 - p.y / ceilingY); // 1 у пола → 0 у потолка
+                const inf = 0.3 + 0.7 * hFactor;
 
-                // 1. Эжекция: частица подхватывается результирующим потоком.
-                //    Во встречной зоне результирующая ≈ 0 → реальное торможение (застой).
-                const kAdv = Math.min(0.5, 1.4 * dt) * inf;
-                p.vx += (s.vx * ppm - p.vx) * kAdv;
-                p.vz += (s.vz * ppm - p.vz) * kAdv;
+                // Нормаль к плоскости встречи (в сторону ядра столкновения).
+                const nx = s.gx / gmag;
+                const nz = s.gz / gmag;
+                // Скорость частицы «в лоб» навстречу другой струе.
+                const vn = p.vx * nx + p.vz * nz;
+                if (vn > 0) {
+                    const redirect = vn * Math.min(1, s.p * 2.5) * inf;
 
-                // 2. Расталкивание: импульс вниз по градиенту застойного давления
-                //    (прочь от линии столкновения) — потоки отклоняются друг от друга.
-                let rgx = -s.gx * ppm * dt * 9.0 * inf;
-                let rgz = -s.gz * ppm * dt * 9.0 * inf;
-                const rMag = Math.sqrt(rgx * rgx + rgz * rgz);
-                const rMax = 6.0 * ppm * dt;
-                if (rMag > rMax && rMag > 1e-6) {
-                    const k = rMax / rMag;
-                    rgx *= k; rgz *= k;
+                    // 1. Гасим лобовую компоненту (поток не пересекает плоскость встречи,
+                    //    но и не отскакивает назад).
+                    p.vx -= redirect * nx;
+                    p.vz -= redirect * nz;
+
+                    // 2. Растекание вбок вдоль плоскости встречи (касательная в гориз. плоскости).
+                    const tx = -nz, tz = nx;
+                    const tDot = p.vx * tx + p.vz * tz;
+                    const tSign = Math.abs(tDot) > 1e-3 ? Math.sign(tDot) : (Math.random() < 0.5 ? -1 : 1);
+                    p.vx += redirect * 0.6 * tSign * tx;
+                    p.vz += redirect * 0.6 * tSign * tz;
+
+                    // 3. Восходящий «фонтан» — сильнее у пола.
+                    p.vy += redirect * (0.5 + 0.9 * hFactor);
                 }
-                p.vx += rgx;
-                p.vz += rgz;
-
-                // 3. "Фонтан": в зоне столкновения горизонтальный импульс переходит
-                //    в восходящий — сталкивающиеся wall-jet поднимаются вверх.
-                p.vy += s.p * ppm * 8.0 * hFactor * hFactor * dt;
             }
         }
 

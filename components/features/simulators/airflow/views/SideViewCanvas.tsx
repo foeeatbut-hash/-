@@ -775,26 +775,25 @@ const SideViewCanvas: React.FC<SideViewCanvasProps> = (props) => {
                     }
 
                     // --- ВЗАИМОДЕЙСТВИЕ СО ВСТРЕЧНЫМИ СТРУЯМИ ---
+                    // Плоскость встречи = плоскость растекания: лобовую (горизонтальную)
+                    // компоненту гасим и переводим вверх («фонтан») и в глубину (не видна
+                    // в срезе), БЕЗ отражения назад — отражение давало «невидимую стену».
                     if (sideField) {
                         const wx = (p.x - offsetX) / ppm;
                         const roomPixH = roomHeight * ppm;
-                        const hFactor = Math.max(0, Math.min(1, (p.y - offsetY) / roomPixH)); // 0 у потолка → 1 у пола
+                        const hFactor = Math.max(0, Math.min(1, (p.y - offsetY) / roomPixH)); // 0 потолок → 1 пол
                         const s = sampleSideField(sideField, wx);
 
-                        if (s.p > 0.015 || s.vx !== 0) {
-                            const inf = 0.25 + 0.75 * hFactor;
-                            // 1. Эжекция к результирующему потоку (во встречной зоне ≈0 → торможение).
-                            const kAdv = Math.min(0.5, 1.4 * dt) * inf;
-                            p.vx += (s.vx * ppm - p.vx) * kAdv;
-                            // 2. Расталкивание прочь от линии столкновения (вниз по градиенту давления).
-                            let rg = -s.gx * ppm * dt * 9.0 * inf;
-                            const rMax = 6.0 * ppm * dt;
-                            if (rg > rMax) rg = rMax; else if (rg < -rMax) rg = -rMax;
-                            p.vx += rg;
-                            // 3. "Фонтан": встречные настилающиеся струи поднимаются (вверх = −vy).
-                            const up = s.p * ppm * 8.0 * hFactor * hFactor * dt;
-                            p.vy -= up;
-                            if (up > 0.6 && p.isHorizontal) p.isHorizontal = false; // отрыв от пола, рост вверх
+                        if (s.p > 0.02 && Math.abs(s.gx) > 1e-4) {
+                            const inf = 0.3 + 0.7 * hFactor;
+                            const nx = s.gx > 0 ? 1 : -1;   // нормаль к плоскости встречи
+                            const vn = p.vx * nx;           // лобовая компонента
+                            if (vn > 0) {
+                                const redirect = vn * Math.min(1, s.p * 2.5) * inf;
+                                p.vx -= redirect * nx;                       // гасим лобовую (без отражения)
+                                p.vy -= redirect * (0.7 + 0.9 * hFactor);    // вверх = −vy («фонтан»)
+                                if (redirect > 0.4 && p.isHorizontal) p.isHorizontal = false;
+                            }
                         }
                     }
 
