@@ -139,6 +139,75 @@ const getTopLayout = (w: number, h: number, rw: number, rl: number) => {
     return { ppm, originX, originY };
 };
 
+// Порог скорости, определяющий границу «реальной области» воздуха в рабочей зоне
+// (стандарт комфорта ADPI/ГОСТ 30494 для рабочей зоны).
+const WORKZONE_V_THRESHOLD = 0.2;
+
+const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+
+// Цвет точки рабочей зоны по суммарной скорости: 0.2(зелёный)→0.5(янтарный)→1.0(красный).
+// Ниже порога — прозрачно (воздух сюда фактически не доходит).
+const workzoneHeatColor = (v: number): [number, number, number, number] | null => {
+    if (v < WORKZONE_V_THRESHOLD) return null;
+    let r: number, g: number, b: number;
+    if (v <= 0.5) {
+        const t = (v - WORKZONE_V_THRESHOLD) / (0.5 - WORKZONE_V_THRESHOLD);
+        r = lerp(16, 245, t); g = lerp(185, 158, t); b = lerp(129, 11, t);
+    } else {
+        const t = Math.min(1, (v - 0.5) / 0.5);
+        r = lerp(245, 239, t); g = lerp(158, 68, t); b = lerp(11, 68, t);
+    }
+    // Мягкое проявление у порога, далее насыщеннее (но полупрозрачно — поверх плана).
+    const a = Math.min(0.62, 0.2 + (v - WORKZONE_V_THRESHOLD) * 1.1);
+    return [r, g, b, a];
+};
+
+// Запекает поле скоростей рабочей зоны в тепловую карту и плавно растягивает на план.
+const drawWorkzoneHeatmap = (
+    ctx: CanvasRenderingContext2D,
+    field: GridPoint[][] | undefined,
+    ppm: number,
+    originX: number,
+    originY: number,
+    roomWidth: number,
+    roomLength: number
+) => {
+    if (!field || field.length === 0) return;
+    const rows = field.length;
+    const cols = field[0]?.length || 0;
+    if (!cols) return;
+
+    const tmp = document.createElement('canvas');
+    tmp.width = cols;
+    tmp.height = rows;
+    const tctx = tmp.getContext('2d');
+    if (!tctx) return;
+
+    const img = tctx.createImageData(cols, rows);
+    for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+            const pt = field[r][c];
+            const col = workzoneHeatColor(pt ? pt.v : 0);
+            const idx = (r * cols + c) * 4;
+            if (col) {
+                img.data[idx] = col[0];
+                img.data[idx + 1] = col[1];
+                img.data[idx + 2] = col[2];
+                img.data[idx + 3] = Math.round(col[3] * 255);
+            } else {
+                img.data[idx + 3] = 0;
+            }
+        }
+    }
+    tctx.putImageData(img, 0, 0);
+
+    ctx.save();
+    ctx.imageSmoothingEnabled = true;
+    (ctx as any).imageSmoothingQuality = 'high';
+    ctx.drawImage(tmp, 0, 0, cols, rows, originX, originY, roomWidth * ppm, roomLength * ppm);
+    ctx.restore();
+};
+
 const SLICE_HIT_RADIUS = 15;
 
 const getDiffuserHitSize = (diffuser: PlacedDiffuser, ppm: number) =>
@@ -200,6 +269,9 @@ const TopViewCanvas: React.FC<TopViewCanvasProps> = (props) => {
         
         ctx.fillStyle = '#0f172a';
         ctx.fillRect(originX, originY, roomPixW, roomPixL);
+
+        // Реальная область пересечения потока с рабочей зоной (тепловая карта скорости).
+        drawWorkzoneHeatmap(ctx, state.simulationField, ppm, originX, originY, state.roomWidth, state.roomLength);
 
         ctx.strokeStyle = '#334155';
         ctx.lineWidth = 2;
@@ -356,28 +428,8 @@ const TopViewCanvas: React.FC<TopViewCanvasProps> = (props) => {
             const cx = originX + d.x * ppm;
             const cy = originY + d.y * ppm;
 
-            const rPx = Math.max(0, (d.performance?.coverageRadius || 0) * ppm);
-            const v = d.performance?.workzoneVelocity || 0;
-
-            let fillStyle = 'rgba(16, 185, 129, 0.15)';
-            let strokeStyle = 'rgba(16, 185, 129, 0.4)';
-
-            if (v > 0.5) {
-                fillStyle = 'rgba(239, 68, 68, 0.15)';
-                strokeStyle = 'rgba(239, 68, 68, 0.4)';
-            } else if (v > 0.25) {
-                fillStyle = 'rgba(245, 158, 11, 0.15)';
-                strokeStyle = 'rgba(245, 158, 11, 0.4)';
-            }
-
-            ctx.beginPath();
-            ctx.arc(cx, cy, Math.max(0, rPx), 0, Math.PI * 2);
-            ctx.fillStyle = fillStyle;
-            ctx.fill();
-            ctx.lineWidth = 1;
-            ctx.strokeStyle = strokeStyle;
-            ctx.stroke();
-
+            // Область покрытия теперь рисует тепловая карта поля (см. drawWorkzoneHeatmap);
+            // здесь рисуем только сам значок диффузора.
             const dSize = ((d.performance?.spec?.B || d.performance?.spec?.A || 0) / 1000) * ppm || 20;
 
             if (state.selectedDiffuserIds?.includes(d.id)) {
@@ -539,6 +591,32 @@ const TopViewCanvas: React.FC<TopViewCanvasProps> = (props) => {
             ctx.strokeStyle = '#fff';
             ctx.lineWidth = 2;
             ctx.stroke();
+        }
+
+        // Легенда скорости рабочей зоны (когда есть что показывать).
+        if ((state.placedDiffusers?.length || 0) > 0) {
+            const lx = originX;
+            const lw = Math.min(180, state.roomWidth * ppm);
+            const ly = originY + state.roomLength * ppm + 14;
+            const lh = 8;
+
+            const grad = ctx.createLinearGradient(lx, 0, lx + lw, 0);
+            grad.addColorStop(0, 'rgb(16,185,129)');   // 0.2 м/с
+            grad.addColorStop(0.5, 'rgb(245,158,11)'); // 0.5 м/с
+            grad.addColorStop(1, 'rgb(239,68,68)');    // 1.0+ м/с
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.roundRect(lx, ly, lw, lh, 4);
+            ctx.fill();
+
+            ctx.fillStyle = 'rgba(255,255,255,0.55)';
+            ctx.font = '9px Inter, sans-serif';
+            ctx.textBaseline = 'top';
+            ctx.fillText('0.2', lx, ly + lh + 3);
+            ctx.fillText('0.5', lx + lw / 2 - 6, ly + lh + 3);
+            ctx.fillText('1.0+ м/с', lx + lw - 36, ly + lh + 3);
+            ctx.fillStyle = 'rgba(255,255,255,0.75)';
+            ctx.fillText('Скорость в рабочей зоне (≥ 0.2 м/с)', lx, ly - 12);
         }
 
         requestRef.current = requestAnimationFrame(animate);

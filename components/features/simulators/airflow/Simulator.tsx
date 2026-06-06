@@ -201,13 +201,26 @@ const Simulator = ({ onBack, onHome }: any) => {
 
         let tSum = 0;
         let count = 0;
+        // Реальная область пересечения потока с рабочей зоной (v ≥ 0.2 м/с).
+        const WZ_THRESHOLD = 0.2;
+        const cellArea = 0.5 * 0.5; // шаг сетки calculateSimulationField
+        let coveredCells = 0;
+        let wzVSum = 0;
+        let wzVMax = 0;
         simulationField.flat().forEach(pt => {
             if (pt) {
                 tSum += pt.t;
                 count++;
+                if (pt.v >= WZ_THRESHOLD) {
+                    coveredCells++;
+                    wzVSum += pt.v;
+                    if (pt.v > wzVMax) wzVMax = pt.v;
+                }
             }
         });
         const avgTemp = count > 0 ? tSum / count : params.roomTemp;
+        const roomArea = params.roomWidth * params.roomLength;
+        const workzoneArea = coveredCells * cellArea;
 
         return {
             maxNoise,
@@ -218,7 +231,12 @@ const Simulator = ({ onBack, onHome }: any) => {
             comfortZones: analysis.comfortZones,
             warningZones: analysis.warningZones,
             draftZones: analysis.draftZones,
-            deadZones: analysis.deadZones
+            deadZones: analysis.deadZones,
+            // Метрики «реальной области» рабочей зоны (едины с планом).
+            workzoneArea,
+            workzoneCoveragePct: roomArea > 0 ? (workzoneArea / roomArea) * 100 : 0,
+            workzoneVAvg: coveredCells > 0 ? wzVSum / coveredCells : 0,
+            workzoneVMax: wzVMax
         };
     }, [simulationField, placedDiffusers, params.roomTemp]);
 
