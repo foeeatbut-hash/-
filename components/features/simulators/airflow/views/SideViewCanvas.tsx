@@ -784,15 +784,20 @@ const SideViewCanvas: React.FC<SideViewCanvasProps> = (props) => {
                         const hFactor = Math.max(0, Math.min(1, (p.y - offsetY) / roomPixH)); // 0 потолок → 1 пол
                         const s = sampleSideField(sideField, wx);
 
-                        if (s.p > 0.02 && Math.abs(s.gx) > 1e-4) {
-                            const inf = Math.max(0, (hFactor - 0.5) * 2); // 0 выше середины → 1 у пола
+                        if (s.p > 0.015 && Math.abs(s.gx) > 1e-4) {
                             const nx = s.gx > 0 ? 1 : -1;   // нормаль к плоскости встречи
-                            const vn = p.vx * nx;           // лобовая компонента
-                            if (vn > 0 && inf > 0) {
-                                const redirect = vn * Math.min(1, s.p * 2.5) * inf;
-                                p.vx -= redirect * nx;                       // гасим лобовую (без отражения)
-                                p.vy -= redirect * (0.5 + 0.9 * hFactor);    // вверх = −vy («фонтан»)
-                                if (redirect > 0.4 && p.isHorizontal) p.isHorizontal = false;
+                            const vn = p.vx * nx;           // лобовая горизонтальная компонента
+                            if (vn > 0) {
+                                // Гасим встречную горизонтальную на ВСЕЙ высоте → слияние
+                                // струй вниз, без пересечения крест-накрест.
+                                const redirect = vn * Math.min(1, s.p * 3.0);
+                                p.vx -= redirect * nx;
+                                // «Фонтан» вверх — только у пола.
+                                const floorGate = Math.max(0, (hFactor - 0.55) / 0.45);
+                                if (floorGate > 0) {
+                                    p.vy -= redirect * floorGate * 1.1; // вверх = −vy
+                                    if (redirect > 0.4 && p.isHorizontal) p.isHorizontal = false;
+                                }
                             }
                         }
                     }

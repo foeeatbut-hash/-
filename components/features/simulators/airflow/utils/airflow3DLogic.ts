@@ -374,38 +374,33 @@ export const updateParticlePhysics = (p: Particle3D, dt: number, state: ThreeDVi
             const s = sampleFlowField(field, wx, wz);
             const gmag = Math.sqrt(s.gx * s.gx + s.gz * s.gz);
 
-            if (s.p > 0.02 && gmag > 1e-4) {
-                // Эффект ТОЛЬКО в нижней части помещения, где настилающиеся струи
-                // реально встречаются; выше середины высоты конусы не трогаем,
-                // иначе нисходящие струи рассыпаются неестественно.
+            if (s.p > 0.015 && gmag > 1e-4) {
                 const ceilingY = (state.roomHeight || 3) * ppm;
                 const hFactor = Math.max(0, 1 - p.y / ceilingY); // 1 у пола → 0 у потолка
-                const inf = Math.max(0, (hFactor - 0.5) * 2);     // 0 выше середины → 1 у пола
 
-                // Нормаль к плоскости встречи (в сторону ядра столкновения).
                 const nx = s.gx / gmag;
                 const nz = s.gz / gmag;
-                // Скорость частицы «в лоб» навстречу другой струе.
-                const vn = p.vx * nx + p.vz * nz;
+                const vn = p.vx * nx + p.vz * nz; // лобовая горизонтальная компонента навстречу
                 if (vn > 0) {
-                    if (inf > 0) {
-                    const redirect = vn * Math.min(1, s.p * 2.5) * inf;
-
-                    // 1. Гасим лобовую компоненту (поток не пересекает плоскость встречи,
-                    //    но и не отскакивает назад).
+                    // Гасим встречную горизонтальную составляющую НА ВСЕЙ ВЫСОТЕ:
+                    // поэтому в зоне перекрытия струи не проходят сквозь друг друга, а
+                    // СЛИВАЮТСЯ и идут вниз вместе (реальное слияние струй), а не
+                    // пересекаются крест-накрест.
+                    const redirect = vn * Math.min(1, s.p * 3.0);
                     p.vx -= redirect * nx;
                     p.vz -= redirect * nz;
 
-                    // 2. Растекание вбок вдоль плоскости встречи (касательная в гориз. плоскости).
-                    const tx = -nz, tz = nx;
-                    const tDot = p.vx * tx + p.vz * tz;
-                    const tSign = Math.abs(tDot) > 1e-3 ? Math.sign(tDot) : (Math.random() < 0.5 ? -1 : 1);
-                    p.vx += redirect * 0.55 * tSign * tx;
-                    p.vz += redirect * 0.55 * tSign * tz;
-
-                    // 3. Восходящий «фонтан» — сильнее у пола.
-                    p.vy += redirect * (0.5 + 0.9 * hFactor);
-                }
+                    // У пола встретившиеся настилающиеся струи растекаются вбок и
+                    // поднимаются «фонтаном»; в воздухе этого нет (там только слияние).
+                    const floorGate = Math.max(0, (hFactor - 0.55) / 0.45);
+                    if (floorGate > 0) {
+                        const tx = -nz, tz = nx;
+                        const tDot = p.vx * tx + p.vz * tz;
+                        const tSign = Math.abs(tDot) > 1e-3 ? Math.sign(tDot) : (Math.random() < 0.5 ? -1 : 1);
+                        p.vx += redirect * 0.5 * floorGate * tSign * tx;
+                        p.vz += redirect * 0.5 * floorGate * tSign * tz;
+                        p.vy += redirect * floorGate * 1.1;
+                    }
                 }
             }
         }
