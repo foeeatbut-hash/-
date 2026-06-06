@@ -381,55 +381,30 @@ export const updateParticlePhysics = (p: Particle3D, dt: number, state: ThreeDVi
             const s = sampleFlowField(field, wx, wz);
             const gmag = Math.sqrt(s.gx * s.gx + s.gz * s.gz);
 
-            // ЭЖЕКЦИЯ / СЛИЯНИЕ: пока струя опускается, её подтягивает к соседним
-            // струям (подсос воздуха между ними). Сила — по импульсу соседа
-            // (∝ расход·скорость) и близости. Так близкие струи сходятся в общий
-            // поток вниз, заполняя центр, а не оставляют пустой зазор.
-            if (!p.isHorizontal && p.ownerIdx >= 0 && field.sources.length >= 2) {
-                let fx = 0, fz = 0;
-                for (let i = 0; i < field.sources.length; i++) {
-                    if (i === p.ownerIdx) continue;
-                    const src = field.sources[i];
-                    const dx = src.cx - wx;
-                    const dz = src.cz - wz;
-                    const hd = Math.sqrt(dx * dx + dz * dz);
-                    if (hd > 0.15 && hd < src.reach) {
-                        const w = src.strength * (1 - hd / src.reach);
-                        fx += (dx / hd) * w;
-                        fz += (dz / hd) * w;
-                    }
-                }
-                const k = 3.0 * ppm * dt;
-                p.vx += fx * k;
-                p.vz += fz * k;
-            }
-
-            if (s.p > 0.015 && gmag > 1e-4) {
+            // Взаимодействие струй — ТОЛЬКО у пола (нижние ~35% высоты), где
+            // настилающиеся струи реально встречаются. В воздухе конусы независимы
+            // (любые эвристики в воздухе давали артефакты: пересечение/стенку/луч).
+            if (s.p > 0.02 && gmag > 1e-4) {
                 const ceilingY = (state.roomHeight || 3) * ppm;
                 const hFactor = Math.max(0, 1 - p.y / ceilingY); // 1 у пола → 0 у потолка
+                const floorGate = Math.max(0, (hFactor - 0.65) / 0.35); // только нижние ~35%
 
-                const nx = s.gx / gmag;
-                const nz = s.gz / gmag;
-                const vn = p.vx * nx + p.vz * nz; // лобовая горизонтальная компонента навстречу
-                if (vn > 0) {
-                    // Плавно (без резкой «стенки») гасим встречную горизонтальную
-                    // составляющую: чем ближе к центру встречи (выше s.p) — тем сильнее.
-                    // Струи в зоне перекрытия мягко сходятся вниз, не пересекаясь.
-                    const t = Math.min(1, Math.max(0, (s.p - 0.02) / 0.22));
-                    const redirect = vn * t * 0.7;
-                    p.vx -= redirect * nx;
-                    p.vz -= redirect * nz;
-
-                    // У пола встретившиеся настилающиеся струи растекаются вбок и
-                    // поднимаются «фонтаном»; в воздухе этого нет (там только слияние).
-                    const floorGate = Math.max(0, (hFactor - 0.55) / 0.45);
-                    if (floorGate > 0) {
+                if (floorGate > 0) {
+                    const nx = s.gx / gmag;
+                    const nz = s.gz / gmag;
+                    const vn = p.vx * nx + p.vz * nz; // встречная горизонтальная компонента
+                    if (vn > 0) {
+                        const redirect = vn * Math.min(1, s.p * 2.5) * floorGate;
+                        // Настилающиеся струи встречаются: гасим лобовую (не пересекаются),
+                        // растекаются вбок и поднимаются «фонтаном».
+                        p.vx -= redirect * nx;
+                        p.vz -= redirect * nz;
                         const tx = -nz, tz = nx;
                         const tDot = p.vx * tx + p.vz * tz;
                         const tSign = Math.abs(tDot) > 1e-3 ? Math.sign(tDot) : (Math.random() < 0.5 ? -1 : 1);
-                        p.vx += redirect * 0.5 * floorGate * tSign * tx;
-                        p.vz += redirect * 0.5 * floorGate * tSign * tz;
-                        p.vy += redirect * floorGate * 1.1;
+                        p.vx += redirect * 0.5 * tSign * tx;
+                        p.vz += redirect * 0.5 * tSign * tz;
+                        p.vy += redirect * 1.1;
                     }
                 }
             }

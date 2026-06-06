@@ -784,19 +784,16 @@ const SideViewCanvas: React.FC<SideViewCanvasProps> = (props) => {
                         const hFactor = Math.max(0, Math.min(1, (p.y - offsetY) / roomPixH)); // 0 потолок → 1 пол
                         const s = sampleSideField(sideField, wx);
 
-                        if (s.p > 0.015 && Math.abs(s.gx) > 1e-4) {
-                            const nx = s.gx > 0 ? 1 : -1;   // нормаль к плоскости встречи
-                            const vn = p.vx * nx;           // лобовая горизонтальная компонента
-                            if (vn > 0) {
-                                // Плавно гасим встречную горизонтальную (без резкой «стенки»):
-                                // струи мягко сходятся вниз в зоне перекрытия, не пересекаясь.
-                                const t = Math.min(1, Math.max(0, (s.p - 0.02) / 0.22));
-                                const redirect = vn * t * 0.7;
-                                p.vx -= redirect * nx;
-                                // «Фонтан» вверх — только у пола.
-                                const floorGate = Math.max(0, (hFactor - 0.55) / 0.45);
-                                if (floorGate > 0) {
-                                    p.vy -= redirect * floorGate * 1.1; // вверх = −vy
+                        // Взаимодействие только у пола (нижние ~35%), где струи настилаются.
+                        if (s.p > 0.02 && Math.abs(s.gx) > 1e-4) {
+                            const floorGate = Math.max(0, (hFactor - 0.65) / 0.35);
+                            if (floorGate > 0) {
+                                const nx = s.gx > 0 ? 1 : -1;   // нормаль к плоскости встречи
+                                const vn = p.vx * nx;           // встречная горизонтальная компонента
+                                if (vn > 0) {
+                                    const redirect = vn * Math.min(1, s.p * 2.5) * floorGate;
+                                    p.vx -= redirect * nx;          // гасим лобовую (не пересекаются)
+                                    p.vy -= redirect * 1.1;         // вверх = −vy («фонтан»)
                                     if (redirect > 0.4 && p.isHorizontal) p.isHorizontal = false;
                                 }
                             }
