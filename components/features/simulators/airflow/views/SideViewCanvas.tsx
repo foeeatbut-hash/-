@@ -788,9 +788,10 @@ const SideViewCanvas: React.FC<SideViewCanvasProps> = (props) => {
                             const nx = s.gx > 0 ? 1 : -1;   // нормаль к плоскости встречи
                             const vn = p.vx * nx;           // лобовая горизонтальная компонента
                             if (vn > 0) {
-                                // Гасим встречную горизонтальную на ВСЕЙ высоте → слияние
-                                // струй вниз, без пересечения крест-накрест.
-                                const redirect = vn * Math.min(1, s.p * 3.0);
+                                // Плавно гасим встречную горизонтальную (без резкой «стенки»):
+                                // струи мягко сходятся вниз в зоне перекрытия, не пересекаясь.
+                                const t = Math.min(1, Math.max(0, (s.p - 0.02) / 0.22));
+                                const redirect = vn * t * 0.7;
                                 p.vx -= redirect * nx;
                                 // «Фонтан» вверх — только у пола.
                                 const floorGate = Math.max(0, (hFactor - 0.55) / 0.45);
