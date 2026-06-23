@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Settings, Wind, Box, X, AlertTriangle, CheckCircle2, Calculator, BookOpen, ArrowRight, ChevronLeft, Zap, Users, Gauge, Volume2, GitMerge, CloudRain, Thermometer, Flame, ScrollText, Shapes, ArrowRightLeft, User } from 'lucide-react';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { AIChat } from './components/ui/AIChat';
@@ -25,64 +25,37 @@ const AppContent = () => {
     const [globalSettings, setGlobalSettings] = useLocalStorage('hvac-global-settings', {
         particleLimit: 8000
     });
-    // Нужно ли пропустить интро сразу (системное «уменьшить движение» или уже играли за сессию).
-    const shouldSkipIntro = () => {
-        if (typeof window === 'undefined') return false;
-        const reduced = !!window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-        let played = false;
-        try { played = sessionStorage.getItem('klimlab-intro-played') === '1'; } catch (e) { /* недоступно */ }
-        return reduced || played;
-    };
-
-    // Ленивая инициализация: на повторном заходе сразу финальное состояние, без кадра-вспышки интро.
-    const [introPhase, setIntroPhase] = useState(() => (shouldSkipIntro() ? 2 : 0));
-    const [logoStep, setLogoStep] = useState(() => (shouldSkipIntro() ? 4 : 0));
-
-    // Таймеры интро храним в ref, чтобы корректно гасить их при «Пропустить».
-    const introTimers = useRef<number[]>([]);
-    const clearIntroTimers = () => {
-        introTimers.current.forEach((t) => clearTimeout(t));
-        introTimers.current = [];
-    };
-
-    // Мгновенно завершить интро (пропуск / reduced-motion / повторный заход за сессию).
-    const finishIntro = () => {
-        clearIntroTimers();
-        setIntroPhase(2);
-        setLogoStep(4);
-        try { sessionStorage.setItem('klimlab-intro-played', '1'); } catch (e) { /* недоступно */ }
-    };
+    const [introPhase, setIntroPhase] = useState(0);
+    const [logoStep, setLogoStep] = useState(0);
 
     useEffect(() => {
-        // Уважение системной настройки и показ один раз за сессию: анимацию не запускаем.
-        if (shouldSkipIntro()) {
-            return;
-        }
+        // Фаза 0: Полный текст "КЛИМАТИЧЕСКАЯ ЛАБОРАТОРИЯ" на одной строке (вначале висит до 3.5с)
+        
+        // Фаза 1: Лишние буквы "АТИЧЕСКАЯ" и "ОРАТОРИЯ" медленно и красиво исчезают (3.5с - 5.5с)
+        const t0 = setTimeout(() => setLogoStep(1), 3500);
+        
+        // Фаза 2: Слог "ЛАБ" плавно трансформируется в фирменный бэйдж и изящно притягивается влево вплотную к "КЛИМ" (5.5с - 7.5с)
+        const t1 = setTimeout(() => setLogoStep(2), 5500);
+        
+        // Фаза 3: Отъезд и уменьшение получившегося сбалансированного логотипа КЛИМЛАБ в угол (7.5с - 11.5с)
+        const t2 = setTimeout(() => {
+            setIntroPhase(1);
+            setLogoStep(3);
+        }, 7500);
+        
+        // Фаза 4: Плавное проявление кнопок меню, карточек симуляторов и интерфейсов лаунчера (11.5с)
+        const t3 = setTimeout(() => {
+            setIntroPhase(2);
+            setLogoStep(4);
+        }, 11500);
 
-        // Хореография интро (≈3.6 с до интерактива):
-        introTimers.current = [
-            // Фаза 0→1: полный текст «КЛИМАТИЧЕСКАЯ ЛАБОРАТОРИЯ» читается, затем лишние
-            // буквы «АТИЧЕСКАЯ»/«ОРАТОРИЯ» синхронно схлопываются.
-            window.setTimeout(() => setLogoStep(1), 1900),
-            // Фаза 2: «ЛАБ» превращается в фирменный бэйдж и встаёт вплотную к «КЛИМ» → «КЛИМЛАБ».
-            window.setTimeout(() => setLogoStep(2), 2700),
-            // Фаза 3: интро плавно уезжает, проявляется рабочий хедер.
-            window.setTimeout(() => { setIntroPhase(1); setLogoStep(3); }, 3300),
-            // Фаза 4: проявляются карточки лаунчера; фиксируем показ за сессию.
-            window.setTimeout(() => { setIntroPhase(2); setLogoStep(4); }, 4200),
-            window.setTimeout(() => { try { sessionStorage.setItem('klimlab-intro-played', '1'); } catch (e) { /* недоступно */ } }, 4250),
-        ];
-
-        return clearIntroTimers;
+        return () => {
+            clearTimeout(t0);
+            clearTimeout(t1);
+            clearTimeout(t2);
+            clearTimeout(t3);
+        };
     }, []);
-
-    // Пропуск интро по любой клавише, пока оно играет (клик обрабатывается на самом слое интро).
-    useEffect(() => {
-        if (introPhase >= 2) return;
-        const onKey = () => finishIntro();
-        window.addEventListener('keydown', onKey);
-        return () => window.removeEventListener('keydown', onKey);
-    }, [introPhase]);
 
     const goBack = () => setAppMode('launcher');
     const goHome = () => { setAppMode('launcher'); setLauncherSection('main'); };
@@ -377,15 +350,13 @@ const AppContent = () => {
                 
                 {/* СЛОЙ А: ПОЛНОЭКРАННОЕ ИНТРО (СТРОГО ПО ЦЕНТРУ ЭКРАНА В СЕРЕДИНЕ ПРОГРАММЫ) */}
                 {introPhase < 2 && (
-                    <div
-                        onClick={finishIntro}
-                        className={`fixed inset-0 z-[100] flex flex-col items-center justify-center p-4 bg-[#F5F5F7] dark:bg-[#020205] cursor-pointer transition-all duration-[1100ms] ease-[cubic-bezier(0.22,1,0.36,1)] transform-gpu ${
-                        introPhase >= 1 ? 'opacity-0 pointer-events-none scale-[0.97]' : 'opacity-100'
+                    <div className={`fixed inset-0 z-[100] flex flex-col items-center justify-center p-4 bg-[#F5F5F7] dark:bg-[#020205] transition-all duration-[1500ms] cubic-bezier(0.25, 1, 0.5, 1) ${
+                        introPhase >= 1 ? 'opacity-0 pointer-events-none scale-95' : 'opacity-100'
                     }`}>
-                        <div className="flex flex-col items-center md:flex-row gap-6 md:gap-8 max-w-full px-4 transform-gpu">
-
-                            {/* Высокотехнологичный круглый 3D-логотип с плавным появлением */}
-                            <div className="intro-logo-in relative flex items-center justify-center w-16 h-16 md:w-24 md:h-24 rounded-[28px] bg-white dark:bg-[#0c0c10] border border-slate-200/80 dark:border-white/10 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.1)] dark:shadow-[0_30px_70px_rgba(0,0,0,0.6)] overflow-hidden flex-shrink-0">
+                        <div className="flex flex-col items-center md:flex-row gap-6 md:gap-8 max-w-full px-4 transform-gpu transition-transform duration-[1000ms]">
+                            
+                            {/* Высокотехнологичный круглый 3D-логотип по центру */}
+                            <div className="relative flex items-center justify-center w-16 h-16 md:w-24 md:h-24 rounded-[28px] bg-white dark:bg-[#0c0c10] border border-slate-200/80 dark:border-white/10 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.1)] dark:shadow-[0_30px_70px_rgba(0,0,0,0.6)] overflow-hidden flex-shrink-0 animate-in zoom-in-50 duration-[1000ms]">
                                 <div className="absolute inset-0 bg-[linear-gradient(to_right,rgba(148,163,184,0.06)_1px,transparent_1px),linear-gradient(to_bottom,rgba(148,163,184,0.06)_1px,transparent_1px)] dark:bg-[linear-gradient(to_right,rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:12px_12px]"></div>
                                 <div className="absolute w-[85%] h-[85%] rounded-full border border-dashed border-slate-200/40 dark:border-white/5 animate-[spin_60s_linear_infinite]" />
                                 <div className="relative w-10 h-10 flex items-center justify-center">
@@ -396,44 +367,37 @@ const AppContent = () => {
 
                             {/* Текстовая группа интро с безопасными размерами (без вылетов) */}
                             <div className="flex flex-col justify-center items-center md:items-start text-center md:text-left max-w-full overflow-hidden">
-                                <h1 className="text-[24px] sm:text-[36px] md:text-[46px] lg:text-[54px] font-black tracking-tight uppercase flex flex-row items-center leading-none whitespace-nowrap w-max max-w-full">
+                                <h1 className="text-[24px] sm:text-[36px] md:text-[46px] lg:text-[54px] font-black tracking-tight uppercase flex flex-row items-center leading-none whitespace-nowrap overflow-visible w-max max-w-full">
                                     <span className="flex items-center text-slate-800 dark:text-white">
                                         <span>КЛИМ</span>
-                                        {/* Лишние буквы: сначала видны полностью, затем схлопываются по ширине */}
-                                        <span className={`inline-block overflow-hidden whitespace-nowrap select-none transform-gpu transition-all duration-[850ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
-                                            logoStep >= 1 ? 'max-w-0 opacity-0 blur-[2px]' : 'max-w-[16ch] opacity-100 blur-0'
-                                        }`}>АТИЧЕСКАЯ</span>
+                                        <span className={`transition-all duration-[1500ms] cubic-bezier(0.25, 1, 0.5, 1) overflow-hidden inline-block origin-left select-none ${
+                                            logoStep >= 1 ? 'max-w-0 opacity-0 -translate-x-4' : 'max-w-[450px] opacity-100 mr-2 md:mr-3'
+                                        }`}>
+                                            АТИЧЕСКАЯ
+                                        </span>
                                     </span>
-
-                                    <span className={`inline-flex items-center transform-gpu transition-all duration-[850ms] ease-[cubic-bezier(0.22,1,0.36,1)] font-black ${
-                                        logoStep >= 2
-                                            ? 'ml-1 px-3 py-1.5 rounded-2xl bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-transparent bg-clip-text bg-gradient-to-r from-blue-500 via-blue-600 to-emerald-500 shadow-sm'
-                                            : 'ml-2 md:ml-3 text-slate-800 dark:text-white'
+                                    
+                                    <span className={`inline-flex items-center transition-all duration-[1500ms] cubic-bezier(0.25, 1, 0.5, 1) px-3 py-1.5 rounded-2xl bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-transparent bg-clip-text bg-gradient-to-r from-blue-500 via-blue-600 to-emerald-500 font-black shadow-sm ${
+                                        logoStep >= 2 ? 'ml-0' : 'ml-2 md:ml-3'
                                     }`}>
                                         <span>ЛАБ</span>
-                                        <span className={`inline-block overflow-hidden whitespace-nowrap select-none transform-gpu transition-all duration-[850ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
-                                            logoStep >= 1 ? 'max-w-0 opacity-0 blur-[2px]' : 'max-w-[16ch] opacity-100 blur-0'
-                                        }`}>ОРАТОРИЯ</span>
+                                        <span className={`transition-all duration-[1500ms] cubic-bezier(0.25, 1, 0.5, 1) overflow-hidden inline-block origin-left select-none ${
+                                            logoStep >= 1 ? 'max-w-0 opacity-0 -translate-x-4' : 'max-w-[450px] opacity-100 ml-1'
+                                        }`}>
+                                            ОРАТОРИЯ
+                                        </span>
                                     </span>
                                 </h1>
-                                <p className="intro-rise text-slate-400/80 dark:text-slate-500 text-[10px] sm:text-[11px] md:text-xs font-bold tracking-[0.4em] uppercase mt-3.5 select-none">
+                                <p className="text-slate-400/80 dark:text-slate-500 text-[10px] sm:text-[11px] md:text-xs font-bold tracking-[0.4em] uppercase mt-3.5 select-none transition-opacity duration-500">
                                     Инженерный комплекс ОВиК
                                 </p>
                             </div>
                         </div>
-
-                        {/* Подсказка «Пропустить» (клик в любом месте слоя тоже завершает интро) */}
-                        <button
-                            onClick={(e) => { e.stopPropagation(); finishIntro(); }}
-                            className="absolute bottom-8 left-1/2 -translate-x-1/2 text-[10px] font-bold uppercase tracking-[0.3em] text-slate-400/70 dark:text-slate-600 hover:text-slate-700 dark:hover:text-slate-300 transition-colors px-4 py-2 rounded-full intro-rise"
-                        >
-                            Пропустить →
-                        </button>
                     </div>
                 )}
 
                 {/* СЛОЙ Б: ГЛАВНЫЙ РАБОЧИЙ ИНТЕРФЕЙС ПРИЛОЖЕНИЯ И ХЕДЕР В УГЛУ */}
-                <div className={`w-full flex-1 flex flex-col items-center p-4 md:p-8 transition-all duration-[1100ms] ease-[cubic-bezier(0.22,1,0.36,1)] transform-gpu ${
+                <div className={`w-full flex-1 flex flex-col items-center p-4 md:p-8 transition-all duration-[1500ms] cubic-bezier(0.25, 1, 0.5, 1) transform-gpu ${
                     introPhase >= 1 ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8 pointer-events-none'
                 }`}>
                     
@@ -484,7 +448,7 @@ const AppContent = () => {
                     )}
 
                     {/* Модульные Секции Главного Меню Лаунчера */}
-                    <div className={`w-full flex justify-center flex-1 transition-all duration-[900ms] delay-150 ease-[cubic-bezier(0.22,1,0.36,1)] transform-gpu ${
+                    <div className={`w-full flex justify-center flex-1 transition-all duration-[1000ms] delay-300 transform-gpu ${
                         introPhase >= 2 ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 translate-y-4 pointer-events-none'
                     }`}>
                         {launcherSection === 'main' && renderMainLauncher()}
@@ -500,10 +464,10 @@ const AppContent = () => {
     return (
         <div className="flex h-[100dvh] flex-col relative overflow-x-hidden overflow-y-auto slim-scrollbar bg-[#F5F5F7] dark:bg-[#020205] text-slate-900 dark:text-slate-200 font-sans transition-colors duration-500 ease-in-out">
             {/* AMBIENT BACKGROUND */}
-            <div className="fixed top-0 -left-40 w-[600px] h-[600px] bg-blue-500/10 dark:bg-blue-600/20 rounded-full mix-blend-multiply dark:mix-blend-screen filter blur-[120px] opacity-40 animate-blob pointer-events-none transform-gpu will-change-transform"></div>
-            <div className="fixed top-0 -right-40 w-[600px] h-[600px] bg-purple-500/10 dark:bg-purple-600/20 rounded-full mix-blend-multiply dark:mix-blend-screen filter blur-[120px] opacity-40 animate-blob animation-delay-2000 pointer-events-none transform-gpu will-change-transform"></div>
-            <div className="fixed -bottom-40 left-20 w-[600px] h-[600px] bg-emerald-500/10 dark:bg-emerald-600/20 rounded-full mix-blend-multiply dark:mix-blend-screen filter blur-[120px] opacity-40 animate-blob animation-delay-4000 pointer-events-none transform-gpu will-change-transform"></div>
-            <div className="fixed inset-0 bg-noise opacity-10 dark:opacity-20 brightness-100 contrast-150 pointer-events-none"></div>
+            <div className="fixed top-0 -left-40 w-[600px] h-[600px] bg-blue-500/10 dark:bg-blue-600/20 rounded-full mix-blend-multiply dark:mix-blend-screen filter blur-[120px] opacity-40 animate-blob pointer-events-none"></div>
+            <div className="fixed top-0 -right-40 w-[600px] h-[600px] bg-purple-500/10 dark:bg-purple-600/20 rounded-full mix-blend-multiply dark:mix-blend-screen filter blur-[120px] opacity-40 animate-blob animation-delay-2000 pointer-events-none"></div>
+            <div className="fixed -bottom-40 left-20 w-[600px] h-[600px] bg-emerald-500/10 dark:bg-emerald-600/20 rounded-full mix-blend-multiply dark:mix-blend-screen filter blur-[120px] opacity-40 animate-blob animation-delay-4000 pointer-events-none"></div>
+            <div className="fixed inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-10 dark:opacity-20 brightness-100 contrast-150 pointer-events-none"></div>
 
             <div className={`relative z-10 w-full ${appMode === 'simulator' ? '' : (introPhase < 2 ? 'flex-1 h-[100dvh]' : 'pt-8 md:pt-12 pb-24 flex-1')}`}>
                 {renderContent()}
